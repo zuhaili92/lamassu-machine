@@ -3,7 +3,7 @@
 const serialPort = require('serialport')
 const SerialPort = serialPort.SerialPort
 const EventEmitter = require('events')
-const crc = require('../lib/id003/crc')
+const fsm = require('../lib/f56/f56-fsm')
 
 const serialOptions = {baudRate: 9600, parity: 'even', dataBits: 8, stopBits: 1}
 
@@ -27,16 +27,11 @@ function create (device) {
   })
 }
 
-const STX = 0x02
-const ETX = 0x03
-const ENQ = 0x05
-const ACK = 0x06
-const NAK = 0x15
-const DLE = 0x10
-
 function parse (buf) {
   console.log(buf.toString('hex'))
-
+  for (let byte of buf) {
+    fsm.rx(byte)
+  }
 }
 
 const device = process.argv[2]
