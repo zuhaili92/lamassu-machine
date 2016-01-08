@@ -1,3 +1,5 @@
+'use strict'
+
 const machina = require('machina')
 const crc = require('../lib/id003/crc')
 
@@ -12,13 +14,22 @@ const DLE_ETX = new Buffer([DLE, ETX])
 const DLE_ENQ = new Buffer([DLE, ENQ])
 
 const fsm = new machina.Fsm({
-  initialState: 'DLE_ENQ',
+  initialState: 'Idle',
   states: {
-    DLE_ENQ: {
-      _onEnter: () => fsm.retryCount = 0,
+    Idle: {
+      // Note: This has to be a regular function and must use "this" because fsm
+      // isn't defined yet.
+      _onEnter: function () {
+        this.retryDleAckCount = 0
+        this.retryAckCount = 0
+        this.transmitData = null
+      },
+      'Send': data => {
+        fsm.transmitData = data
+        fsm.transition('DLE_ENQ_T')
+      },
       DLE: 'ENQ',
-      LineError: nakEnq,
-      '*': 'DLE_ENQ'
+      LineError: nakEnq
     },
     ENQ: {
       _onEnter: startTimer,
@@ -28,19 +39,19 @@ const fsm = new machina.Fsm({
       },
       Timeout: nakEnq,
       LineError: nakEnq,
-      '*': 'DLE_ENQ',
+      '*': 'Idle',
       _onExit: clearTimer
     },
     DLE_STX: {
       _onEnter: () => {
         startTimer()
-        fsm.dataLengthBuf = new Buffer()
+        fsm.dataLengthBuf = new Buffer(0)
         fsm.dataLength = null
-        fsm.data = new Buffer()
-        fsm.crc = new Buffer()
+        fsm.data = new Buffer(0)
+        fsm.crc = new Buffer(0)
       },
       DLE: 'STX',
-      Timeout: 'DLE_ENQ',
+      Timeout: 'Idle',
       LineError: nakEnq,
       '*': 'ENQ',
       _onExit: clearTimer
@@ -52,19 +63,17 @@ const fsm = new machina.Fsm({
         fsm.emit('send', DLE_ACK)
         fsm.transition('DLE_STX')
       },
-      STX: 'Data',
+      STX: 'DataLength',
       '*': nakEnq,
       _onExit: clearTimer
     },
-    dataLength: {
+    DataLength: {
       _onEnter: startTimer,
       Timeout: nakStx,
       LineError: nakStx,
-      '*': byte => {
-        fsm.dataLengthBuf = Buffer.concat([fsm.dataLengthBuf, new Buffer(byte)])
-        if (fsm.dataLengthBuf.length === 2) {
-          fsm.transition('Data')
-        }
+      Data: byte => {
+        fsm.dataLengthBuf = Buffer.concat([fsm.dataLengthBuf, new Buffer([byte])])
+        if (fsm.dataLengthBuf.length === 2) fsm.transition('Data')
       },
       _onExit: clearTimer
     },
@@ -74,10 +83,9 @@ const fsm = new machina.Fsm({
       LineError: nakStx,
       Data: byte => {
         fsm.dataLength = fsm.dataLength || fsm.dataLengthBuf.readUInt16BE(0)
-        fsm.data = Buffer.concat([fsm.data, new Buffer(byte)])
+        fsm.data = Buffer.concat([fsm.data, new Buffer([byte])])
         if (fsm.data.length === fsm.dataLength) fsm.transition('DLE_ETX')
       },
-      '*': 'DLE_ETX',
       _onExit: clearTimer
     },
     DLE_ETX: {
@@ -96,31 +104,26 @@ const fsm = new machina.Fsm({
       _onEnter: startTimer,
       Timeout: nakStx,
       LineError: nakStx,
-      '*': byte => {
-        fsm.crc = Buffer.concat([fsm.crc, new Buffer(byte)])
+      'Data': byte => {
+        fsm.crc = Buffer.concat([fsm.crc, new Buffer([byte])])
         if (fsm.crc.length === 2) fsm.transition('CRC_Check')
       },
       _onExit: clearTimer
     },
     CRC_Check: {
-      '*': () => {
+      _onEnter: () => {
         const buf = Buffer.concat([fsm.dataLengthBuf, fsm.data, DLE_ETX])
         const computedCrc = crc.compute(buf)
 
         if (fsm.crc.readUInt16LE(0) === computedCrc) {
           fsm.emit('send', DLE_ACK)
           fsm.emit('frame', fsm.data)
-          fsm.transition('DLE_ENQ')
+          fsm.transition('Idle')
           return
         }
 
+        console.log('DEBUG2: CRC failure')
         nakStx()
-      }
-    },
-    Send: {
-      '*': data => {
-        fsm.transmitData = data
-        fsm.transition('DLE_ENQ_T')
       }
     },
     DLE_ENQ_T: {
@@ -132,13 +135,16 @@ const fsm = new machina.Fsm({
     DLE_ACK: {
       _onEnter: startTimer,
       DLE: 'ACK',
-      Timeout: retryAck,
-      LineError: retryAck,
+      Timeout: retryDleAck,
+      LineError: retryDleAck,
       _onExit: clearTimer
     },
     ACK: {
-      _onEnter: startTimer,
-      ENQ: 'DLE_ACK',
+      _onEnter: () => {
+        startTimer()
+        fsm.retryDleAckCount = 0
+      },
+      ENQ: 'DLE_ENQ_T',
       ACK: 'Transmit',
       Timeout: retryAck,
       LineError: retryAck,
@@ -146,6 +152,10 @@ const fsm = new machina.Fsm({
       _onExit: clearTimer
     },
     Transmit: {
+      _onEnter: () => {
+        resetRetry()
+        fsm.retryAckCount = 0
+      },
       '*': () => {
         fsm.emit('send', fsm.transmitData)
         fsm.transition('DLE_ACK_2')
@@ -154,38 +164,59 @@ const fsm = new machina.Fsm({
     DLE_ACK_2: {
       _onEnter: startTimer,
       DLE: 'ACK_2',
-      Timeout: retryTransmit(),
-      LineError: retryTransmit(),
+      Timeout: retryDleAck2,
+      LineError: retryDleAck2,
       _onExit: clearTimer
     },
     ACK_2: {
-      _onEnter: startTimer,
-      ENQ: 'DLE_ENQ',
-      ACK: () => {
-        fsm.emit('transmissionComplete')
-        fsm.transition('DLE_ENQ')
+      _onEnter: () => {
+        startTimer()
+        fsm.retryDleAckCount = 0
       },
-      NAK: retryTransmit,
-      Timeout: retryTransmit,
-      LineError: retryTransmit,
+      ENQ: 'Idle',
+      ACK: () => {
+        fsm.emit('status', 'transmissionComplete')
+        fsm.transition('Idle')
+      },
+      NAK: retryAck2,
+      Timeout: retryAck2,
+      LineError: retryAck2,
       '*': 'DLE_ACK_2',
       _onExit: clearTimer
     }
   }
 })
 
-function retryTransmit () {
-  fsm.retryCount++
-  if (fsm.retryCount < 3) return fsm.transition('Transmit')
-  fsm.emit('transmissionFailure')
-  fsm.transition('DLE_ENQ')
+function resetRetry () {
+  fsm.retryCount = 0
+}
+
+function retryDleAck2 () {
+  fsm.retryDleAckCount = fsm.retryDleAckCount + 1
+  if (fsm.retryDleAckCount < 3) return fsm.transition('Transmit')
+  fsm.emit('status', 'transmissionFailure')
+  fsm.transition('Idle')
+}
+
+function retryAck2 () {
+  fsm.retryAckCount++
+  if (fsm.retryAckCount < 3) return fsm.transition('Transmit')
+  fsm.emit('status', 'transmissionFailure')
+  fsm.transition('Idle')
 }
 
 function retryAck () {
-  fsm.retryCount++
-  if (fsm.retryCount < 3) return fsm.transition('DLE_ENQ_T')
-  fsm.emit('transmissionFailure')
-  fsm.transition('DLE_ENQ')
+  fsm.retryAckCount++
+  if (fsm.retryAckCount < 3) return fsm.transition('DLE_ENQ_T')
+  fsm.emit('status', 'transmissionFailure')
+  fsm.transition('Idle')
+}
+
+function retryDleAck () {
+  fsm.retryDleAckCount++
+  if (fsm.retryDleAckCount < 3) return fsm.transition('DLE_ENQ_T')
+  fsm.emit('status', 'transmissionFailure')
+  fsm.transition('Idle')
 }
 
 function nakStx () {
@@ -195,7 +226,7 @@ function nakStx () {
 
 function nakEnq () {
   fsm.emit('NAK')
-  fsm.transition('DLE_ENQ')
+  fsm.transition('Idle')
 }
 
 function startTimer () {
@@ -206,12 +237,23 @@ function clearTimer () {
   clearTimeout(fsm.timerId)
 }
 
-fsm.on('send', s => console.log('to: %s', s))
+function prettyHex (buf) {
+  const pairs = []
+  for (let i = 0; i < buf.length; i++) {
+    pairs.push((buf.slice(i, i + 1).toString('hex')))
+  }
+
+  return pairs.join(' ')
+}
+
+fsm.on('send', s => console.log('send: %s', prettyHex(s)))
+fsm.on('transition', r => console.log('%s: %s -> %s', r.action, r.fromState, r.toState))
+fsm.on('status', r => console.log)
+fsm.on('frame', r => console.log('frame: %s', prettyHex(r)))
+
 module.exports = fsm
 
 /*
 TODO
-
-- add in line error handling
-- fsm for transmission
+  - keep thinking about retry, might need multiple counts
 */
