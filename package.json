@@ -48,7 +48,6 @@
       "ui/js/debug.js",
       "ui/js/keyboard.js",
       "ui/flag-icon-css/**",
-      "tools/**",
       "test/**",
       "scratch/**",
       "i18n/**",
