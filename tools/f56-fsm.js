@@ -11,17 +11,16 @@ const fsm = new machina.Fsm({
   states: {
     DLE_ENQ: {
       DLE: 'ENQ',
+      LineError: nakEnq,
       '*': 'DLE_ENQ'
     },
     ENQ: {
-      'ENQ': () => {
+      ENQ: () => {
         fsm.emit('send', 'ACK')
         fsm.transition('DLE_STX')
       },
-      'Timeout': () => {
-        fsm.emit('send', 'NAK')
-        fsm.transition('DLE_ENQ')
-      },
+      Timeout: nakEnq,
+      LineError: nakEnq,
       '*': 'DLE_ENQ'
     },
     DLE_STX: {
@@ -33,6 +32,7 @@ const fsm = new machina.Fsm({
       },
       DLE: 'STX',
       Timeout: 'DLE_ENQ',
+      LineError: nakEnq,
       '*': 'ENQ'
     },
     STX: {
@@ -42,13 +42,11 @@ const fsm = new machina.Fsm({
         fsm.transition('DLE_STX')
       },
       STX: 'Data',
-      '*': () => {
-        fsm.emit('send', 'NAK')
-        fsm.transition('DLE_ENQ')
-      }
+      '*': nakEnq
     },
     dataLength: {
       Timeout: nakStx,
+      LineError: nakStx,
       '*': byte => {
         fsm.dataLengthBuf = Buffer.concat([fsm.dataLengthBuf, new Buffer(byte)])
         if (fsm.dataLengthBuf.length === 2) {
@@ -58,6 +56,7 @@ const fsm = new machina.Fsm({
     },
     Data: {
       Timeout: nakStx,
+      LineError: nakStx,
       Data: byte => {
         fsm.dataLength = fsm.dataLength || fsm.dataLengthBuf.readUInt16BE(0)
         fsm.data = Buffer.concat([fsm.data, new Buffer(byte)])
@@ -75,6 +74,7 @@ const fsm = new machina.Fsm({
     },
     CRC: {
       Timeout: nakStx,
+      LineError: nakStx,
       '*': byte => {
         fsm.crc = Buffer.concat([fsm.crc, new Buffer(byte)])
         if (fsm.crc.length === 2) fsm.transition('CRC_Check')
@@ -101,6 +101,11 @@ const fsm = new machina.Fsm({
 function nakStx () {
   fsm.emit('NAK')
   fsm.transition('DLE_STX')
+}
+
+function nakEnq () {
+  fsm.emit('NAK')
+  fsm.transition('DLE_ENQ')
 }
 
 fsm.on('send', s => console.log('to: %s', s))
