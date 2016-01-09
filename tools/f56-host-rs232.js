@@ -34,7 +34,7 @@ function parse (buf) {
   }
 }
 
-fsm.on('frame', f => console.log(prettyHex(f)))
+fsm.on('frame', processFrame)
 
 fsm.on('send', s => {
   console.log('sending: %s', prettyHex(s))
@@ -45,6 +45,10 @@ const device = process.argv[2]
 create(device)
 .then(console.log)
 
+function processFrame (frame) {
+  console.log(prettyHex(frame))
+}
+
 function prettyHex (buf) {
   const pairs = []
   for (let i = 0; i < buf.length; i++) {
@@ -52,4 +56,14 @@ function prettyHex (buf) {
   }
 
   return pairs.join(' ')
+}
+
+function parity(x) {
+   let y
+   y = x ^ (x >> 1)
+   y = y ^ (y >> 2)
+   y = y ^ (y >> 4)
+   y = y ^ (y >> 8)
+   y = y ^ (y >>16)
+   return x + (y & 1) * 0x80
 }
