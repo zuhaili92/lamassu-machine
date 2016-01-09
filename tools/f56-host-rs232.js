@@ -84,10 +84,13 @@ function billCount (frame) {
   console.log(D(count0))
 
   const command = [0xe0, 0x03, 0x99]
-  const counted = [D(count0), D(count1), D(0), D(0)]
-  const rejected = [D(0), D(0), D(0), D(0)]
-  const header = new Buffer(R.flatten([command, counted, rejected]))
-  header.copy(buf)
+  const reject1 = Math.floor(count1 / 3)
+  const dispense1 = count1 - reject1
+  const counted = [D(count0), D(dispense1), D(0), D(0)]
+  const rejected = [D(0), D(reject1), D(0), D(0)]
+  const body = new Buffer(R.flatten([counted, rejected]))
+  new Buffer(command).copy(buf)
+  body.copy(buf, 0x27)
   FS.copy(buf, 138)
 
   return buf
