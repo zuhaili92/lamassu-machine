@@ -81,3 +81,9 @@ function parity (x) {
   y = y ^ (y >> 16)
   return x + (y & 1) * 0x80
 }
+
+function D (n) {
+  let str = n.toString(10)
+  if (str.length === 1) str = '0' + str
+  return [parity(str[0]), parity(str[1])]
+}
