@@ -10,6 +10,8 @@ const serialOptions = {baudRate: 9600, parity: 'even', dataBits: 8, stopBits: 1}
 class Emitter extends EventEmitter {}
 const emitter = new Emitter()
 
+const FS = new Buffer([0x1c])
+
 var serial
 
 function create (device) {
@@ -46,7 +48,19 @@ create(device)
 .then(console.log)
 
 function processFrame (frame) {
-  console.log(prettyHex(frame))
+  console.log('framee: %s', prettyHex(frame))
+  const response = initialize()
+  fsm.tx(response)
+}
+
+function initialize () {
+  const buf = new Buffer(37)
+  buf.fill()
+  const header = new Buffer([0xe0, 0x02, 0x34])
+  header.copy(buf)
+  FS.copy(buf, 36)
+
+  return buf
 }
 
 function prettyHex (buf) {
