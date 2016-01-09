@@ -72,12 +72,12 @@ function prettyHex (buf) {
   return pairs.join(' ')
 }
 
-function parity(x) {
-   let y
-   y = x ^ (x >> 1)
-   y = y ^ (y >> 2)
-   y = y ^ (y >> 4)
-   y = y ^ (y >> 8)
-   y = y ^ (y >>16)
-   return x + (y & 1) * 0x80
+function parity (x) {
+  let y
+  y = x ^ (x >> 1)
+  y = y ^ (y >> 2)
+  y = y ^ (y >> 4)
+  y = y ^ (y >> 8)
+  y = y ^ (y >> 16)
+  return x + (y & 1) * 0x80
 }
