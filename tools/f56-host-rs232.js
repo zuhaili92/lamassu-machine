@@ -34,6 +34,22 @@ function parse (buf) {
   }
 }
 
+fsm.on('frame', f => console.log(prettyHex(f)))
+
+fsm.on('send', s => {
+  console.log('sending: %s', prettyHex(s))
+  serial.write(s)
+})
+
 const device = process.argv[2]
 create(device)
 .then(console.log)
+
+function prettyHex (buf) {
+  const pairs = []
+  for (let i = 0; i < buf.length; i++) {
+    pairs.push((buf.slice(i, i + 1).toString('hex')))
+  }
+
+  return pairs.join(' ')
+}
