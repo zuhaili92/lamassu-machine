@@ -20,7 +20,7 @@
     "node-forge": "~0.2.36",
     "node-uuid": "~1.4.2",
     "padster": "0.0.3",
-    "ramda": "^0.13.0",
+    "ramda": "^0.19.1",
     "serialport": "^1.4.10",
     "supyo": "~0.2.0",
     "tar": "~0.1.8",

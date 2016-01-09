@@ -4,6 +4,7 @@ const serialPort = require('serialport')
 const SerialPort = serialPort.SerialPort
 const EventEmitter = require('events')
 const fsm = require('../lib/f56/f56-fsm')
+const R = require('ramda')
 
 const serialOptions = {baudRate: 9600, parity: 'even', dataBits: 8, stopBits: 1}
 
@@ -48,17 +49,56 @@ create(device)
 .then(console.log)
 
 function processFrame (frame) {
-  console.log('framee: %s', prettyHex(frame))
-  const response = initialize()
-  fsm.tx(response)
+  fsm.tx(buildResponse(frame))
+}
+
+function buildResponse (frame) {
+  const commandSlice = frame.slice(0, 3)
+
+  function matches (arr) {
+    const buf = new Buffer(arr)
+    return buf.equals(commandSlice)
+  }
+
+  if (matches([0x60, 0x02, 0x0d])) {
+    return initialize()
+  }
+
+  if (matches([0x60, 0x03, 0x15])) {
+    return billCount(frame)
+  }
+
+  console.error('Unknown command')
+}
+
+function billCount (frame) {
+  const buf = new Buffer(139)
+  buf.fill()
+
+  const count0 = DP(frame.slice(4, 6))
+  const count1 = DP(frame.slice(6, 8))
+
+  console.log(frame.slice(4, 8).toString('hex'))
+  console.log(count0)
+  console.log(count1)
+  console.log(D(count0))
+
+  const command = [0xe0, 0x03, 0x99]
+  const counted = [D(count0), D(count1), D(0), D(0)]
+  const rejected = [D(0), D(0), D(0), D(0)]
+  const header = new Buffer(R.flatten([command, counted, rejected]))
+  header.copy(buf)
+  FS.copy(buf, 138)
+
+  return buf
 }
 
 function initialize () {
-  const buf = new Buffer(37)
+  const buf = new Buffer(56)
   buf.fill()
   const header = new Buffer([0xe0, 0x02, 0x34])
   header.copy(buf)
-  FS.copy(buf, 36)
+  FS.copy(buf, 55)
 
   return buf
 }
@@ -85,5 +125,10 @@ function parity (x) {
 function D (n) {
   let str = n.toString(10)
   if (str.length === 1) str = '0' + str
-  return [parity(str[0]), parity(str[1])]
+  return [parity(str.charCodeAt(0)), parity(str.charCodeAt(1))]
+}
+
+function DP (buf) {
+  const str = String.fromCharCode(buf[0] & 0x7f, buf[1] & 0x7f)
+  return parseInt(str, 10)
 }
