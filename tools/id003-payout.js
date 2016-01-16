@@ -15,14 +15,17 @@ id003.run(err => {
   id003.on('billPaid', () => console.log('Bill dispensed'))
 
   id003.setRecycleCurrency(5, 0, 1)
-  delay(200)
+
+  delay200
   .then(() => id003.setCurrentCount(10, 1))
-  .then(() => delay(200))
+  .then(delay200)
   .then(() => id003.setRecycleCurrency(20, 0, 2))
-  .then(() => delay(200))
+  .then(delay200)
   .then(() => id003.payout(5, 1))
 })
 
+const delay200 = () => delay(200)
+
 function delay (ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms))
+  return new Promise(resolve => setTimeout(resolve, ms))
 }
