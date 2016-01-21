@@ -16,8 +16,8 @@ id003.run(err => {
 
   id003.setRecycleCurrency(5, 0, 1)
 
-  delay200
-  .then(() => id003.setCurrentCount(10, 1))
+  delay200()
+  .then(() => id003.setCurrentCount(1, 1))
   .then(delay200)
   .then(() => id003.setRecycleCurrency(20, 0, 2))
   .then(delay200)
