@@ -1,6 +1,8 @@
 /* globals $, WebSocket, Audio, locales, Keyboard, Keypad, Jed, BigNumber, cryptoUrl */
 'use strict'
 
+console.log('DEBUG10')
+
 var currency = null
 var locale = null
 var localeCode = null
@@ -37,16 +39,23 @@ var BRANDON = ['ca', 'cs', 'da', 'de', 'en', 'es', 'et', 'fi', 'fr', 'hr',
 'hu', 'it', 'lt', 'nb', 'nl', 'pl', 'pt', 'ro', 'sl', 'sv', 'tr']
 
 function connect () {
+  console.log('DEBUG15')
   websocket = new WebSocket('ws://localhost:8080/')
+  console.log('DEBUG16')
   websocket.onmessage = function (event) {
+    console.log('DEBUG11')
     var data = $.parseJSON(event.data)
     processData(data)
   }
+  websocket.onerror = function (err) { consoel.log('DEBUG20'); console.error(err) }
+  websocket.onopen = function () { console.log('DEBUG17: connected') }
+
   setInterval(verifyConnection, 3000)
 }
 
 function verifyConnection () {
   if (websocket.readyState === websocket.CLOSED) {
+    console.log('DEBUG18')
     connect()
   }
 }
@@ -75,6 +84,10 @@ function swaperoo (s1, s2, indicator) {
 }
 
 function processData (data) {
+  console.log('DEBUG12')
+  console.dir(data)
+  console.log(data.action)
+
   if (data.localeInfo) setLocaleInfo(data.localeInfo)
   if (data.locale) setLocale(data.locale)
   if (!locale) return
@@ -211,11 +224,16 @@ function processData (data) {
 }
 
 function chooseCoin (coins) {
+  console.log('DEBUG21')
+  console.dir(coins)
   $('#js-coin-selection').empty()
+  console.log('DEBUG22')
   coins.forEach(function (coin) {
     var el = '<li class="button coin coin-' + coin.toLowerCase() + ' button" data-coin="' + coin + '"></li>'
     $('#js-coin-selection').append(el)
   })
+  console.log('DEBUG23')
+
   setState('choose_coin')
 }
 
@@ -838,10 +856,6 @@ function translateCoin (cryptoCode) {
   tc('did-send-coins', 'Have you sent the %s yet?', cryptoCode)
   tc('scan-address', 'Scan your %s address', cryptoCode)
   tc('coins-to-address', 'Your %s will be sent to:', cryptoCode)
-
-  if (cryptoCode === 'ETH') {
-    tc('authorizing-note', 'This should take <strong>15 seconds</strong> on average.<br/>Occasionally, it will take over a minute.')
-  }
 }
 
 function initTranslatePage () {
@@ -1034,4 +1048,5 @@ function handleCoins (coins) {
 }
 
 function initDebug () {
+  console.log('DEBUG13')
 }
