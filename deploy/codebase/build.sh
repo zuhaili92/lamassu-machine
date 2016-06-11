@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-SUB_DIR=codebase
+SUB_DIR=codebase-$(npm version | head -n1 | cut -c 21- | tr -d "', \n")
 SCRIPT_DIR=$(dirname $0)
 MACHINE_DIR=$SCRIPT_DIR/../..
 EXPORT_ROOT=$MACHINE_DIR/build
