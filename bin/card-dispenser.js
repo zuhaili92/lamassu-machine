@@ -7,6 +7,8 @@ var device = process.argv[2]
 var serial = new SerialPort(device,
 {baudRate: 9600, parity: 'none', dataBits: 8, stopBits: 1})
 
+var ACK = 0x06
+var NAK = 0x15
 var STX = 0xf2
 var CMT = 0x43
 var ETX = 0x03
@@ -57,10 +59,58 @@ function processFrame (frame) {
   console.log(frame.toString('hex'))
 }
 
+function sendAck () {
+  serial.write(ACK)
+}
+
+function sendNak () {
+  serial.write(NAK)
+}
+
 var protocol = new machina.Fsm({
   initialState: 'idle',
   states: {
     idle: {
+      _onEnter: () => {
+        if (this.lastFrame) this.command(this.lastFrame)
+      },
+      command: frame => {
+        this.transition('waitForAck')
+        sendFrame(frame)
+      }
+    },
+    waitForAck: {
+      onEnter: () => this.timeout(),
+      ack: 'waitForResponse',
+      nak: 'idle',
+      timeout: 'idle',
+      _onExit: () => this.clearTimeout
+    },
+    waitForResponse: {
+      _onEnter: () => {
+        this.lastFrame = null
+        this.timeout()
+      },
+      response: res => {
+        processFrame(res)
+        this.transition('idle')
+      },
+      timeout: () => this.error(), // do an error. emit?
+      _onExit: () => this.clearTimeout
     }
-  }
+  },
+  timeout: () => {
+    if (this.timeoutHandle) console.log('WARN: timeoutHandle is already set')
+    this.timeoutHandle = setTimeout(() => this.transition('timeout'), 300)
+  },
+  clearTimeout: () => {
+    if (this.timeoutHandle) {
+      clearTimeout(this.timeoutHandle)
+      this.timeoutHandle = null
+    }
+  },
+  idle: this.handle('idle'),
+  command: frame => this.handle('command', frame)
 })
+
+protocol.idle()
