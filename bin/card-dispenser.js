@@ -16,8 +16,6 @@ var ETX = 0x03
 var ADDR = 0x00
 var REPOSITION = 0x30
 
-let currentFrame = new Buffer(0)
-
 serial.on('error', function (err) { console.log(err) })
 serial.on('open', function () {
   console.log('INFO dispenser connected')
@@ -118,17 +116,26 @@ var protocol = new machina.Fsm({
         const b = this.incomingFrame[3]
         if (R.isNil(b)) return
         this.incomingFrameLength |= b
-        this.transition('head')
+        this.transition('txet')
       }
     },
-    head: {
+    txet: {
       timeout: () => this.bail('response timeout'),
       data: () => {
-        const b = this.incomingFrame[4]
-        if (R.isNil(b)) return
-        if (b === PMT) return this.transition('pm')
-        if (b === EMT) return this.transition('errPm')
-        bail('Illegal header character')
+        const txet = this.incomingFrame.slice(4, 4 + this.incomingFrameLength)
+        if (txet.length < this.incomingFrameLength) return
+        const etx = this.incomingFrame[this.incomingFrameLength + 4]
+        if (etx !== ETX) return
+        const bcc = this.incomingFrame[this.incomingFrameLength + 5]
+        if (R.isNil(bcc)) return
+        const bccPacket = this.incomingFrame.slice(0, -1)
+        if (computeBcc(bccPacket) !== bcc) {
+          this.transition('waitResponse')
+          return sendNak()
+        }
+        sendAck()
+        processFrame(txet)
+        this.transition('idle')
       }
     }
   },
@@ -146,7 +153,7 @@ var protocol = new machina.Fsm({
     () => {
       if (this.incomingFrame[index] === expected) this.transition(nextState)
     }
-  }
+  },
   idle: this.handle('idle'),
   command: frame => this.handle('command', frame)
 })
