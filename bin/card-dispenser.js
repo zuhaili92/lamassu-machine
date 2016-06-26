@@ -1,6 +1,7 @@
 var serialPort = require('serialport')
 var SerialPort = serialPort.SerialPort
 var machina = require('machina')
+const R = require('ramda')
 
 var device = process.argv[2]
 
@@ -14,6 +15,8 @@ var CMT = 0x43
 var ETX = 0x03
 var ADDR = 0x00
 var REPOSITION = 0x30
+
+let currentFrame = new Buffer(0)
 
 serial.on('error', function (err) { console.log(err) })
 serial.on('open', function () {
@@ -89,14 +92,44 @@ var protocol = new machina.Fsm({
     waitForResponse: {
       _onEnter: () => {
         this.lastFrame = null
+        this.incomingFrame = new Buffer(0)
+        this.incomingTxetLength = 0x00
         this.timeout()
       },
-      response: res => {
-        processFrame(res)
-        this.transition('idle')
-      },
-      timeout: () => this.error(), // do an error. emit?
-      _onExit: () => this.clearTimeout
+      timeout: () => this.bail('response timeout'),
+      data: this.ifByte(0, STX, 'addr')
+    },
+    addr: {
+      timeout: () => this.bail('response timeout'),
+      data: this.ifByte(1, 0x00, 'lenh')
+    },
+    lenh: {
+      timeout: () => this.bail('response timeout'),
+      data: () => {
+        const b = this.incomingFrame[2]
+        if (R.isNil(b)) return
+        this.incomingFrameLength = b << 8
+        this.transition('lenl')
+      }
+    },
+    lenl: {
+      timeout: () => this.bail('response timeout'),
+      data: () => {
+        const b = this.incomingFrame[3]
+        if (R.isNil(b)) return
+        this.incomingFrameLength |= b
+        this.transition('head')
+      }
+    },
+    head: {
+      timeout: () => this.bail('response timeout'),
+      data: () => {
+        const b = this.incomingFrame[4]
+        if (R.isNil(b)) return
+        if (b === PMT) return this.transition('pm')
+        if (b === EMT) return this.transition('errPm')
+        bail('Illegal header character')
+      }
     }
   },
   timeout: () => {
@@ -109,6 +142,11 @@ var protocol = new machina.Fsm({
       this.timeoutHandle = null
     }
   },
+  ifByte: (index, expected, nextState) => {
+    () => {
+      if (this.incomingFrame[index] === expected) this.transition(nextState)
+    }
+  }
   idle: this.handle('idle'),
   command: frame => this.handle('command', frame)
 })
