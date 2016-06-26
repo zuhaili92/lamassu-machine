@@ -14,7 +14,8 @@ var STX = 0xf2
 var CMT = 0x43
 var ETX = 0x03
 var ADDR = 0x00
-var REPOSITION = 0x30
+const PMT = 0x50
+const EMT = 0x45
 
 serial.on('error', function (err) { console.log(err) })
 serial.on('open', function () {
@@ -35,8 +36,9 @@ function computeBcc (packet) {
 }
 
 function buildFrame (cmd, param, data) {
-  data = data || new Buffer(0)
-  var txet = Buffer.concat([new Buffer([CMT, cmd, param]), data])
+  data = data || []
+  const buf = Buffer.isBuffer(data) ? data : new Buffer(data)
+  var txet = Buffer.concat([new Buffer([CMT, cmd, param]), buf])
   var txetLen = txet.length
   var prefix = new Buffer([STX, ADDR, 0x00, 0x00])
   prefix.writeUInt16BE(txetLen, 2)
@@ -51,13 +53,22 @@ function sendFrame (frame) {
   serial.write(frame)
 }
 
-function initialize () {
-  var frame = buildFrame(REPOSITION, 0x30)
-  sendFrame(frame)
-}
+function processFrame (txet) {
+  console.log(txet.toString('hex'))
+  const header = txet[0]
 
-function processFrame (frame) {
-  console.log(frame.toString('hex'))
+  if (header === EMT) {
+    const err = new Error('Response error')
+    err.codes = txet.slice(3, 4)
+    throw err
+  }
+
+  if (header !== PMT) throw new Error('Bad header value')
+
+  return {
+    status: txet.slice(3, 6),
+    data: txet.slice(6)
+  }
 }
 
 function sendAck () {
@@ -134,8 +145,13 @@ var protocol = new machina.Fsm({
           return sendNak()
         }
         sendAck()
-        processFrame(txet)
         this.transition('idle')
+
+        try {
+          this.emit('response', processFrame(txet))
+        } catch (err) {
+          this.emit('error', err)
+        }
       }
     }
   },
@@ -159,3 +175,55 @@ var protocol = new machina.Fsm({
 })
 
 protocol.idle()
+
+function request (cmd, param, data) {
+  return new Promise((resolve, reject) => {
+    protocol.on('*', (eventName, data) => {
+      protocol.off()
+      if (eventName === 'response') return resolve(data)
+      if (eventName === 'error') return reject(data)
+      throw new Error('Shouldn\'t happen: unknown event: ' + eventName)
+    })
+    protocol.command(buildFrame(cmd, param, data))
+  })
+}
+
+function initialize () {
+  return request(0x30, 0x33)
+}
+
+function cardToChipReader () {
+  return request(0x32, 0x31)
+}
+
+function cardPresentHold () {
+  return request(0x32, 0x30)
+}
+
+function cardReset () {
+  return request(0x51, 0x30, [0x33])
+}
+
+function cardApdu (apdu) {
+  return request(0x51, 0x31)
+}
+
+function cardOff () {
+
+}
+
+const apdu = '00A4040006A00000000107'
+
+initialize()
+.then(cardToChipReader)
+.then(cardReset)
+.then(r => {
+  console.log('ATR: 0x' + r.data.slice(1).toString('hex'))
+  return cardApdu(new Buffer(apdu, 'hex'))
+})
+.then(r => {
+  console.log('Card response: 0x' + r.data.toString('hex'))
+  return cardOff()
+})
+.then(cardPresentHold)
+.catch(err => console.log(err.stack))
