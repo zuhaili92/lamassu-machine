@@ -1,3 +1,5 @@
+'use strict'
+
 var serialPort = require('serialport')
 var SerialPort = serialPort.SerialPort
 var machina = require('machina')
@@ -53,7 +55,9 @@ function sendFrame (frame) {
 
 function processData (data) {
   console.log('receiving: 0x:' + data.toString('hex'))
-  protocol.processData(data)
+  for (let byte of data) {
+    protocol.rx(byte)
+  }
 }
 
 function processFrame (txet) {
@@ -88,7 +92,7 @@ var protocol = new machina.Fsm({
     idle: {
       _onEnter: function () {
         if (this.lastFrame) protocol.command(this.lastFrame)
-        this.incomingFrame = new Buffer(0)
+        this.incomingFrame = null
       },
       command: function (frame) {
         this.transition('waitForAck')
@@ -97,79 +101,70 @@ var protocol = new machina.Fsm({
     },
     waitForAck: {
       _onEnter: function () { this.timeout() },
-      data: function () {
-        const ackNak = this.incomingFrame[0]
-        this.incomingFrame = this.incomingFrame.slice(1)
-        if (ackNak === ACK) this.transition('waitForResponse')
-        if (ackNak === NAK) this.transition('idle')
+      data: function (b) {
+        if (b === ACK) return this.transition('waitForResponse')
+        if (b === NAK) return this.transition('idle')
       },
       timeout: 'idle',
-      _onExit: () => {
-        protocol.clearTimeout()
+      _onExit: function () {
+        this.clearTimeout()
+        this.lastFrame = null
       }
     },
     waitForResponse: {
       _onEnter: function () {
-        this.lastFrame = null
         this.incomingTxetLength = 0x00
+        this.incomingFrame = new Buffer(0)
         // this.timeout()
-        this.checkData()
       },
-      timeout: () => protocol.bail('response timeout'),
-      data: () => {
-        if (protocol.incomingFrame[0] === STX) protocol.transition('addr')
+      timeout: function () { this.bail('response timeout') },
+      data: function (b) {
+        if (b === STX) protocol.transition('addr')
       }
     },
     addr: {
-      _onEnter: function () { this.checkData() },
       timeout: () => protocol.bail('response timeout'),
-      data: function () {
-        console.log('DEBUG1: %s', this.incomingFrame.toString('hex'))
-        if (this.incomingFrame[1] === 0x00) this.transition('lenh')
+      data: function (b) {
+        if (b === 0x00) this.transition('lenh')
       }
     },
     lenh: {
-      _onEnter: function () { this.checkData() },
       timeout: () => protocol.bail('response timeout'),
-      data: function () {
-        const b = this.incomingFrame[2]
+      data: function (b) {
         if (R.isNil(b)) return
         this.incomingFrameLength = b << 8
         this.transition('lenl')
       }
     },
     lenl: {
-      _onEnter: function () { this.checkData() },
       timeout: () => protocol.bail('response timeout'),
-      data: () => {
-        const b = protocol.incomingFrame[3]
+      data: function (b) {
         if (R.isNil(b)) return
-        protocol.incomingFrameLength |= b
-        protocol.transition('txet')
+        this.incomingFrameLength |= b
+        this.transition('txet')
       }
     },
     txet: {
-      _onEnter: function () { this.checkData() },
-      timeout: () => protocol.bail('response timeout'),
-      data: () => {
-        const txet = protocol.incomingFrame.slice(4, 4 + protocol.incomingFrameLength)
-        if (txet.length < protocol.incomingFrameLength) return
-        const etx = protocol.incomingFrame[protocol.incomingFrameLength + 4]
+      timeout: () => this.bail('response timeout'),
+      data: function (b) {
+        const txet = this.incomingFrame.slice(4, 4 + this.incomingFrameLength)
+        if (txet.length < this.incomingFrameLength) return
+        const etx = this.incomingFrame[this.incomingFrameLength + 4]
         if (etx !== ETX) return
-        const bcc = protocol.incomingFrame[protocol.incomingFrameLength + 5]
+        const bcc = this.incomingFrame[this.incomingFrameLength + 5]
         if (R.isNil(bcc)) return
-        const bccPacket = protocol.incomingFrame.slice(0, -1)
+        const bccPacket = this.incomingFrame.slice(0, -1)
         if (computeBcc(bccPacket) !== bcc) {
-          protocol.transition('waitResponse')
+          this.transition('waitResponse')
           return sendNak()
         }
         sendAck()
-        protocol.transition('idle')
+        this.transition('idle')
 
         try {
-          protocol.emit('response', processFrame(txet))
+          this.emit('response', processFrame(txet))
         } catch (err) {
-          protocol.emit('error', err)
+          this.emit('error', err)
         }
       }
     }
@@ -187,11 +182,10 @@ var protocol = new machina.Fsm({
   },
   idle: function () { this.handle('idle') },
   command: function (frame) { this.handle('command', frame) },
-  processData: function (data) {
-    if (!Buffer.isBuffer(this.incomingFrame)) return
-    this.incomingFrame = Buffer.concat([this.incomingFrame, data])
-    console.log('frame: 0x' + this.incomingFrame.toString('hex'))
-    this.handle('data')
+  rx: function (byte) {
+    const newBuf = new Buffer([byte])
+    if (this.incomingFrame) this.incomingFrame = Buffer.concat([this.incomingFrame, newBuf])
+    this.handle('data', byte)
   }
 })
 
