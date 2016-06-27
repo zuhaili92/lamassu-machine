@@ -22,9 +22,8 @@ serial.on('open', function () {
   console.log('INFO dispenser connected')
   serial.on('data', function (data) { processData(data) })
   serial.on('close', function () { console.log('disconnected') })
-  console.log('connected')
 
-  initialize()
+  run()
 })
 
 function computeBcc (packet) {
@@ -42,18 +41,18 @@ function buildFrame (cmd, param, data) {
   var txetLen = txet.length
   var prefix = new Buffer([STX, ADDR, 0x00, 0x00])
   prefix.writeUInt16BE(txetLen, 2)
-  console.log(prefix)
   var packet = Buffer.concat([prefix, txet, new Buffer([ETX])])
   var bcc = computeBcc(packet)
   return Buffer.concat([packet, new Buffer([bcc])])
 }
 
 function sendFrame (frame) {
-  console.log(frame)
+  console.log('sending: 0x' + frame.toString('hex'))
   serial.write(frame)
 }
 
 function processData (data) {
+  console.log('receiving: 0x:' + data.toString('hex'))
   protocol.processData(data)
 }
 
@@ -87,38 +86,52 @@ var protocol = new machina.Fsm({
   initialState: 'idle',
   states: {
     idle: {
-      _onEnter: () => {
-        if (this.lastFrame) this.command(this.lastFrame)
+      _onEnter: function () {
+        if (this.lastFrame) protocol.command(this.lastFrame)
+        this.incomingFrame = new Buffer(0)
       },
-      command: frame => {
+      command: function (frame) {
         this.transition('waitForAck')
         sendFrame(frame)
       }
     },
     waitForAck: {
-      _onEnter: () => this.timeout(),
-      ack: 'waitForResponse',
-      nak: 'idle',
+      _onEnter: function () { this.timeout() },
+      data: function () {
+        const ackNak = this.incomingFrame[0]
+        this.incomingFrame = this.incomingFrame.slice(1)
+        if (ackNak === ACK) this.transition('waitForResponse')
+        if (ackNak === NAK) this.transition('idle')
+      },
       timeout: 'idle',
-      _onExit: () => this.clearTimeout
+      _onExit: () => {
+        protocol.clearTimeout()
+      }
     },
     waitForResponse: {
-      _onEnter: () => {
+      _onEnter: function () {
         this.lastFrame = null
-        this.incomingFrame = new Buffer(0)
         this.incomingTxetLength = 0x00
-        this.timeout()
+        // this.timeout()
+        this.checkData()
       },
-      timeout: () => this.bail('response timeout'),
-      data: this.ifByte(0, STX, 'addr')
+      timeout: () => protocol.bail('response timeout'),
+      data: () => {
+        if (protocol.incomingFrame[0] === STX) protocol.transition('addr')
+      }
     },
     addr: {
-      timeout: () => this.bail('response timeout'),
-      data: this.ifByte(1, 0x00, 'lenh')
+      _onEnter: function () { this.checkData() },
+      timeout: () => protocol.bail('response timeout'),
+      data: function () {
+        console.log('DEBUG1: %s', this.incomingFrame.toString('hex'))
+        if (this.incomingFrame[1] === 0x00) this.transition('lenh')
+      }
     },
     lenh: {
-      timeout: () => this.bail('response timeout'),
-      data: () => {
+      _onEnter: function () { this.checkData() },
+      timeout: () => protocol.bail('response timeout'),
+      data: function () {
         const b = this.incomingFrame[2]
         if (R.isNil(b)) return
         this.incomingFrameLength = b << 8
@@ -126,59 +139,58 @@ var protocol = new machina.Fsm({
       }
     },
     lenl: {
-      timeout: () => this.bail('response timeout'),
+      _onEnter: function () { this.checkData() },
+      timeout: () => protocol.bail('response timeout'),
       data: () => {
-        const b = this.incomingFrame[3]
+        const b = protocol.incomingFrame[3]
         if (R.isNil(b)) return
-        this.incomingFrameLength |= b
-        this.transition('txet')
+        protocol.incomingFrameLength |= b
+        protocol.transition('txet')
       }
     },
     txet: {
-      timeout: () => this.bail('response timeout'),
+      _onEnter: function () { this.checkData() },
+      timeout: () => protocol.bail('response timeout'),
       data: () => {
-        const txet = this.incomingFrame.slice(4, 4 + this.incomingFrameLength)
-        if (txet.length < this.incomingFrameLength) return
-        const etx = this.incomingFrame[this.incomingFrameLength + 4]
+        const txet = protocol.incomingFrame.slice(4, 4 + protocol.incomingFrameLength)
+        if (txet.length < protocol.incomingFrameLength) return
+        const etx = protocol.incomingFrame[protocol.incomingFrameLength + 4]
         if (etx !== ETX) return
-        const bcc = this.incomingFrame[this.incomingFrameLength + 5]
+        const bcc = protocol.incomingFrame[protocol.incomingFrameLength + 5]
         if (R.isNil(bcc)) return
-        const bccPacket = this.incomingFrame.slice(0, -1)
+        const bccPacket = protocol.incomingFrame.slice(0, -1)
         if (computeBcc(bccPacket) !== bcc) {
-          this.transition('waitResponse')
+          protocol.transition('waitResponse')
           return sendNak()
         }
         sendAck()
-        this.transition('idle')
+        protocol.transition('idle')
 
         try {
-          this.emit('response', processFrame(txet))
+          protocol.emit('response', processFrame(txet))
         } catch (err) {
-          this.emit('error', err)
+          protocol.emit('error', err)
         }
       }
     }
   },
-  timeout: () => {
-    if (this.timeoutHandle) console.log('WARN: timeoutHandle is already set')
+  timeout: function () {
+    if (this.timeoutHandle) console('WARN: timeoutHandle is already set')
     this.timeoutHandle = setTimeout(() => this.transition('timeout'), 300)
   },
-  clearTimeout: () => {
-    if (this.timeoutHandle) {
-      clearTimeout(this.timeoutHandle)
-      this.timeoutHandle = null
-    }
+  clearTimeout: function () {
+    clearTimeout(this.timeoutHandle)
+    this.timeoutHandle = null
   },
-  ifByte: (index, expected, nextState) => {
-    () => {
-      if (this.incomingFrame[index] === expected) this.transition(nextState)
-    }
+  checkData: function () {
+    if (this.incomingFrame.length > 0) this.emit('data')
   },
-  idle: this.handle('idle'),
-  command: frame => this.handle('command', frame),
-  processData: data => {
+  idle: function () { this.handle('idle') },
+  command: function (frame) { this.handle('command', frame) },
+  processData: function (data) {
     if (!Buffer.isBuffer(this.incomingFrame)) return
-    this.incomingFrame = Buffer.concat(this.incomingFrame, data)
+    this.incomingFrame = Buffer.concat([this.incomingFrame, data])
+    console.log('frame: 0x' + this.incomingFrame.toString('hex'))
     this.handle('data')
   }
 })
@@ -186,10 +198,10 @@ var protocol = new machina.Fsm({
 function request (cmd, param, data) {
   return new Promise((resolve, reject) => {
     protocol.on('*', (eventName, data) => {
+      if (!R.contains(eventName, ['response', 'error'])) return
       protocol.off()
       if (eventName === 'response') return resolve(data)
       if (eventName === 'error') return reject(data)
-      throw new Error('Shouldn\'t happen: unknown event: ' + eventName)
     })
     protocol.command(buildFrame(cmd, param, data))
   })
@@ -222,22 +234,24 @@ function cardOff () {
 const apdu0 = '00A4040006A00000000107'
 const apdu1 = 'b0010000'
 
-protocol.idle()
-
-initialize()
-.then(cardToChipReader)
-.then(cardReset)
-.then(r => {
-  console.log('ATR: 0x' + r.data.slice(1).toString('hex'))
-  return cardApdu(new Buffer(apdu0, 'hex'))
-})
-.then(r => {
-  console.log('Card response: 0x' + r.data.toString('hex'))
-  return cardApdu(new Buffer(apdu1, 'hex'))
-})
-.then(r => {
-  console.log('Card response: 0x' + r.data.toString('hex'))
-  return cardOff()
-})
-.then(cardPresentHold)
-.catch(err => console.log(err.stack))
+function run () {
+  protocol.idle()
+  protocol.on('*', (eventName, event) => console.log('%s: %j', eventName, event))
+  initialize()
+  .then(cardToChipReader)
+  .then(cardReset)
+  .then(r => {
+    console.log('ATR: 0x' + r.data.slice(1).toString('hex'))
+    return cardApdu(new Buffer(apdu0, 'hex'))
+  })
+  .then(r => {
+    console.log('Card response: 0x' + r.data.toString('hex'))
+    return cardApdu(new Buffer(apdu1, 'hex'))
+  })
+  .then(r => {
+    console.log('Card response: 0x' + r.data.toString('hex'))
+    return cardOff()
+  })
+  .then(cardPresentHold)
+  .catch(err => console.log(err.stack))
+}
