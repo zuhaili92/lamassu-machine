@@ -174,8 +174,6 @@ var protocol = new machina.Fsm({
   command: frame => this.handle('command', frame)
 })
 
-protocol.idle()
-
 function request (cmd, param, data) {
   return new Promise((resolve, reject) => {
     protocol.on('*', (eventName, data) => {
@@ -212,14 +210,21 @@ function cardOff () {
 
 }
 
-const apdu = '00A4040006A00000000107'
+const apdu0 = '00A4040006A00000000107'
+const apdu1 = 'b0010000'
+
+protocol.idle()
 
 initialize()
 .then(cardToChipReader)
 .then(cardReset)
 .then(r => {
   console.log('ATR: 0x' + r.data.slice(1).toString('hex'))
-  return cardApdu(new Buffer(apdu, 'hex'))
+  return cardApdu(new Buffer(apdu0, 'hex'))
+})
+.then(r => {
+  console.log('Card response: 0x' + r.data.toString('hex'))
+  return cardApdu(new Buffer(apdu1, 'hex'))
 })
 .then(r => {
   console.log('Card response: 0x' + r.data.toString('hex'))
