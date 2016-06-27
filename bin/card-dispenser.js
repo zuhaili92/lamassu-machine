@@ -20,7 +20,7 @@ const EMT = 0x45
 serial.on('error', function (err) { console.log(err) })
 serial.on('open', function () {
   console.log('INFO dispenser connected')
-  serial.on('data', function (data) { processFrame(data) })
+  serial.on('data', function (data) { processData(data) })
   serial.on('close', function () { console.log('disconnected') })
   console.log('connected')
 
@@ -51,6 +51,10 @@ function buildFrame (cmd, param, data) {
 function sendFrame (frame) {
   console.log(frame)
   serial.write(frame)
+}
+
+function processData (data) {
+  protocol.processData(data)
 }
 
 function processFrame (txet) {
@@ -92,7 +96,7 @@ var protocol = new machina.Fsm({
       }
     },
     waitForAck: {
-      onEnter: () => this.timeout(),
+      _onEnter: () => this.timeout(),
       ack: 'waitForResponse',
       nak: 'idle',
       timeout: 'idle',
@@ -171,7 +175,12 @@ var protocol = new machina.Fsm({
     }
   },
   idle: this.handle('idle'),
-  command: frame => this.handle('command', frame)
+  command: frame => this.handle('command', frame),
+  processData: data => {
+    if (!Buffer.isBuffer(this.incomingFrame)) return
+    this.incomingFrame = Buffer.concat(this.incomingFrame, data)
+    this.handle('data')
+  }
 })
 
 function request (cmd, param, data) {
@@ -207,7 +216,7 @@ function cardApdu (apdu) {
 }
 
 function cardOff () {
-
+  return request(0x51, 0x31)
 }
 
 const apdu0 = '00A4040006A00000000107'
