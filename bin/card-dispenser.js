@@ -4,6 +4,8 @@ var serialPort = require('serialport')
 var SerialPort = serialPort.SerialPort
 var machina = require('machina')
 const R = require('ramda')
+const bitcore = require('bitcore-lib')
+var Networks = bitcore.Networks
 
 var device = process.argv[2]
 
@@ -18,6 +20,7 @@ var ETX = 0x03
 var ADDR = 0x00
 const PMT = 0x50
 const EMT = 0x45
+const NEG = 0x4e
 
 serial.on('error', function (err) { console.log(err) })
 serial.on('open', function () {
@@ -49,24 +52,21 @@ function buildFrame (cmd, param, data) {
 }
 
 function sendFrame (frame) {
-  console.log('sending: 0x' + frame.toString('hex'))
   serial.write(frame)
 }
 
 function processData (data) {
-  console.log('receiving: 0x:' + data.toString('hex'))
   for (let byte of data) {
     protocol.rx(byte)
   }
 }
 
 function processFrame (txet) {
-  console.log(txet.toString('hex'))
   const header = txet[0]
 
-  if (header === EMT) {
+  if (header === EMT || header === NEG) {
     const err = new Error('Response error')
-    err.codes = txet.slice(3, 4)
+    err.codes = txet.slice(3, 5)
     throw err
   }
 
@@ -209,8 +209,14 @@ function cardToChipReader () {
   return request(0x32, 0x31)
 }
 
-function cardPresentHold () {
+/*
+function cardHold () {
   return request(0x32, 0x30)
+}
+*/
+
+function cardEject () {
+  return request(0x32, 0x39)
 }
 
 function cardReset () {
@@ -218,11 +224,19 @@ function cardReset () {
 }
 
 function cardApdu (apdu) {
-  return request(0x51, 0x31)
+  return request(0x51, 0x34, apdu)
 }
 
 function cardOff () {
   return request(0x51, 0x31)
+}
+
+function acceptCard () {
+  return request(0x33, 0x30)
+}
+
+function checkCard () {
+  return request(0x31, 0x30)
 }
 
 const apdu0 = '00A4040006A00000000107'
@@ -230,7 +244,43 @@ const apdu1 = 'b0010000'
 
 function run () {
   protocol.idle()
-  protocol.on('*', (eventName, event) => console.log('%s: %j', eventName, event))
+
+  initialize()
+  .then(acceptCard)
+  .then(() => console.log('waiting for card...'))
+
+  const pi = setInterval(function () {
+    checkCard()
+    .then(r => {
+      if (r.status[0] === 0x32) {
+        clearInterval(pi)
+        console.log('Card present')
+        return cardToChipReader()
+        .then(cardReset)
+        .then(r => {
+          console.log('ATR: 0x' + r.data.slice(1).toString('hex'))
+          return cardApdu(new Buffer(apdu0, 'hex'))
+        })
+        .then(r => {
+          return cardApdu(new Buffer(apdu1, 'hex'))
+        })
+        .then(r => {
+          console.log('Address: ' + toAddress(r.data))
+          return cardOff()
+        })
+        .then(cardEject)
+        .then(() => process.exit(0))
+        .catch(_ => {
+          // e0, e1 was 0x36, 0x31
+          console.log('*** Try turning the card around ***')
+          return cardEject()
+          .then(() => process.exit(1))
+        })
+      }
+    })
+  }, 1000)
+
+/*
   initialize()
   .then(cardToChipReader)
   .then(cardReset)
@@ -239,13 +289,20 @@ function run () {
     return cardApdu(new Buffer(apdu0, 'hex'))
   })
   .then(r => {
-    console.log('Card response: 0x' + r.data.toString('hex'))
     return cardApdu(new Buffer(apdu1, 'hex'))
   })
   .then(r => {
-    console.log('Card response: 0x' + r.data.toString('hex'))
+    console.log('Address: ' + toAddress(r.data))
     return cardOff()
   })
-  .then(cardPresentHold)
+  .then(cardEject)
+  .then(() => process.exit(0))
   .catch(err => console.log(err.stack))
+*/
+}
+
+function toAddress (apdu) {
+  const pubkeyStr = apdu.slice(0, -2).toString('hex')
+  const pubkey = new bitcore.PublicKey(pubkeyStr, {network: Networks.testnet})
+  return pubkey.toAddress()
 }
