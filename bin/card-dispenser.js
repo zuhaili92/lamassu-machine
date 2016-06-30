@@ -235,6 +235,10 @@ function acceptCard () {
   return request(0x33, 0x30)
 }
 
+function noAcceptCard () {
+  return request(0x33, 0x31)
+}
+
 function checkCard () {
   return request(0x31, 0x30)
 }
@@ -255,7 +259,8 @@ function run () {
       if (r.status[0] === 0x32) {
         clearInterval(pi)
         console.log('Card present')
-        return cardToChipReader()
+        return noAcceptCard()
+        .then(cardToChipReader)
         .then(cardReset)
         .then(r => {
           console.log('ATR: 0x' + r.data.slice(1).toString('hex'))
