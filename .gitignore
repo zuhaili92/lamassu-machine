@@ -55,3 +55,5 @@ crowdin.yaml
 ne*.txt
 
 mock_data/compliance/NY_ID.png
+certs/
+node_modules_old/
