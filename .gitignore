@@ -57,3 +57,6 @@ ne*.txt
 
 mock_data/compliance/NY_ID.png
 node_modules_old/
+
+deploy/nodejs/node-arm7.tgz
+deploy/nodejs/node-linux-x86.tgz
