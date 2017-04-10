@@ -67,6 +67,7 @@ function buttonPressed (button, data) {
 }
 
 function processData (data) {
+  console.log('DEBUG400: %j', data)
   if (data.localeInfo) setLocaleInfo(data.localeInfo)
   if (data.locale) setLocale(data.locale)
   if (!locale) return
@@ -150,10 +151,7 @@ function processData (data) {
       setState('insert_bills')
       break
     case 'acceptingBills':
-      // effectively a return from rejected bill
-      if (currentState === 'sending_coins') {
-        setState('insert_more_bills')
-      }
+      setState('insert_more_bills')
       break
     case 'acceptingBill':
       setAccepting(true)
@@ -431,6 +429,7 @@ function setScreen (newScreen, oldScreen) {
   if (newScreen === oldScreen) return
 
   if (newScreen === 'insert_bills') {
+    $('.js-processing-bill').html(locale.translate('Lamassu Cryptomat').fetch())
     $('.bill img').css({'-webkit-transform': 'none', top: 0, left: 0})
   }
 
@@ -613,9 +612,6 @@ function setFiatCode (data) {
 }
 
 function setCredit (fiat, crypto, lastBill, cryptoCode) {
-  // TODO: this should go in brain.js
-  if (currentState === 'insert_bills') setState('insert_more_bills')
-
   var coin = coins[cryptoCode]
 
   $('.total-deposit').html(formatFiat(fiat))
