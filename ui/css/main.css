@@ -2,11 +2,17 @@ body {
   -webkit-touch-callout: none;
   -webkit-user-select: none;
           user-select: none;
-  width: 1200px;
   overflow: hidden;
   direction: ltr;
   font-family: 'Source Sans Pro', 'Noto Sans CJK CS', 'Noto Sans CJK JP', 'Noto Sans CJK KR', 'Noto Sans CJK TC', 'Noto Sans Hebrew', 'Noto Kufi Arabic';
   cursor: none;
+}
+
+.main {
+  top: -30px;
+  position: relative;
+  width: 100%;
+  height: 100%;
 }
 
 .brandon {
@@ -50,7 +56,7 @@ strong {
 
 h1 { margin: 0;}
 body  { margin: 0;}
-#view { background-color: #37E8D7; width: 1280px; height: 800px; position: relative; }
+#view { background-color: #37E8D7; width: 100%; height: 100%; position: relative; }
 
 .center {
     text-align: center;
@@ -74,10 +80,11 @@ body  { margin: 0;}
 .viewport {
   position: absolute;
   top: 0; left: 0;
-  width: 1280px;
-  height: 800px;
+  width: 1280;
+  height: 720;
   display: none;
   overflow: hidden;
+  background-position: 0 -40;
 }
 
 .viewport-active {
@@ -237,9 +244,9 @@ body  { margin: 0;}
 
 .keypad {
   position: absolute;
-  left: 713;
-  height: 800px;
+  left: 700;
   width: 567px;
+  top: -20;
 }
 
 .keypad .entry {
@@ -282,7 +289,7 @@ body  { margin: 0;}
 
 .keypad .key {
   width: 137px;
-  height: 110px;
+  height: 100px;
   border-radius: 10px;
   background-color: #37E8D7;
   border: 3px solid #37E8D7;
@@ -668,6 +675,12 @@ body  { margin: 0;}
   font-weight: normal;
 }
 
+.fiat-side .qr-section {
+  position: absolute;
+  top: 138;
+  left: 823;
+  text-align: left;
+}
 
 .digital-side .qr-section {
   position: absolute; top: 138; left: 823;
@@ -690,7 +703,6 @@ body  { margin: 0;}
 
 /* 5th Screen */
 .goodbye_state .main {
-  width: 1280px; height: 800px;
   background-color: #FFFFFF;
   color: #37e8d7;
   text-align: center;
@@ -706,16 +718,14 @@ body  { margin: 0;}
 
 /* info screen */
 .info {
-  width: 1280; height: 800;
   text-align: center;
   background-color: #FFFFFF;
 }
 
 .info .top {
   height: 620px; width: 1200px;
-  border: solid 40px #37e8d7;
-  border-bottom: none;
   position: relative;
+  top: 3em;
 
   /* Vertial and horizontal align */
   display: flex;
@@ -729,8 +739,6 @@ body  { margin: 0;}
 
 .info .bottom {
   height: 100px; width: 1200;
-  border: solid 40px #5f5f55;
-  border-top: none;
 }
 
 .info h1 {
@@ -788,15 +796,11 @@ body  { margin: 0;}
 
 /* Specific info screens */
 .trouble, .trouble_state {
-  background: #FFFFFF url('../images/error_bg.png') no-repeat 40px 40px;
+  background: #FFFFFF url('../images/error_bg.png') no-repeat;
 }
 
 .limit_reached_state, .high_bill_state, .minimum_tx_state {
   background: #FFFFFF url('../images/limit_reached.png') no-repeat center 440px;
-}
-
-.limit_reached_state .content, .high_bill_state .content {
-  margin-bottom: 150px;
 }
 
 .unpaired_state p {
@@ -1295,7 +1299,7 @@ body  { margin: 0;}
 
 .fiat-side .instructions {
   position: absolute;
-  top: 118px;
+  top: 10%;
   left: 87px;
   color: #ffffff;
 }
@@ -1335,7 +1339,7 @@ body  { margin: 0;}
 
 .choose_fiat_state .cash-buttons {
   position: absolute;
-  top: 623px;
+  top: 80%;
   font-size: 28px;
   width: 100%;
   text-align: center;
@@ -1429,9 +1433,6 @@ body  { margin: 0;}
 }
 
 #qr-code-deposit {
-  position: absolute;
-  top: 212px;
-  left: 848px;
   background-color: #fff;
   width: 330;
   height: 330;
@@ -1440,9 +1441,6 @@ body  { margin: 0;}
 }
 
 .qr-code-fiat-receipt {
-  position: absolute;
-  top: 212px;
-  left: 848px;
   background-color: #fff;
   width: 330;
   height: 330;
@@ -1451,18 +1449,13 @@ body  { margin: 0;}
 }
 
 .deposit_state .send-notice {
-  position: absolute;
-  right: 84px;
-  bottom: 90px;
-  text-align: right;
+  margin-top: 1em;
   font-size: 30px;
   color: #37e8d7; /* amazonite */;
 }
 
 .dispensing_state .instructions {
-  position: absolute;
-  top: 332px;
-  left: 88px;
+  top: 17em;
 }
 
 .dispensing_state .instructions h1 {
@@ -1508,9 +1501,10 @@ body  { margin: 0;}
 }
 
 .fiat_receipt .send-notice-section {
-  position: absolute;
-  top: 655px;
-  left: 890px;
+  position: relative;
+  left: 5em;
+  margin-top: 1em;
+
 }
 
 .fiat_receipt .camera {
